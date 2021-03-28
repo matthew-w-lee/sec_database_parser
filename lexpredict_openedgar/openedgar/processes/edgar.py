@@ -130,7 +130,7 @@ def process_all_filing_index(year: int = None, form_type_list: Iterable[str] = N
                                            store_text=store_text)
         elif not new_only:
             logger.info("Processing filing index for {0}...".format(s3_path))
-            _ = process_filing_index.delay(client_type, s3_path, form_type_list=form_type_list, store_raw=store_raw,
+            _ = process_filing_index(client_type, s3_path, form_type_list=form_type_list, store_raw=store_raw,
                                            store_text=store_text)
         else:
             logger.info("Skipping process_filing_index for {0}...".format(s3_path))

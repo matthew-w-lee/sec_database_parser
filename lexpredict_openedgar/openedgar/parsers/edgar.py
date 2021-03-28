@@ -193,6 +193,9 @@ def parse_index_file(file_name: str, double_gz: bool = False):
         logger.error("Unable to identify proper columns in {0}".format(file_name))
         logger.error("Columns found: {0}".format(data_table.columns))
 
+    # Make sure Date Filed column is an integer not float
+    data_table["Date Filed"].astype(int)
+    
     # Log exit
     logger.info("Completed parsing index file: {0}".format(file_name))
     logger.info("Index data shape: {0}".format(data_table.shape))

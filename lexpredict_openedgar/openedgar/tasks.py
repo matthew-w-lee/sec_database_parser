@@ -30,7 +30,11 @@ import tempfile
 import os
 import pathlib
 from typing import Iterable, Union
-
+import pandas
+from lxml.html import parse
+import urllib
+import re
+import numpy
 # Packages
 import dateutil.parser
 import django.db.utils
@@ -43,7 +47,7 @@ from openedgar.clients.local import LocalClient
 import openedgar.clients.edgar
 import openedgar.parsers.edgar
 from openedgar.models import Filing, CompanyInfo, Company, FilingDocument, SearchQuery, SearchQueryTerm, \
-    SearchQueryResult, FilingIndex
+    SearchQueryResult, FilingIndex, TableBookmark
 
 # LexNLP imports
 import lexnlp.nlp.en.tokens
@@ -57,8 +61,338 @@ formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
 console.setFormatter(formatter)
 logger.addHandler(console)
 
+CLIENT_TYPE = "LOCAL_CLIENT"
+LOCAL_DOCUMENT_PATH = os.environ["DOWNLOAD_PATH"]
+DOCUMENT_PATH = ""
 
-def create_filing_documents(client, documents, filing, store_raw: bool = True, store_text: bool = True):
+if CLIENT_TYPE == "S3":
+    client = S3Client()
+    DOCUMENT_PATH = S3_DOCUMENT_PATH
+else:
+    client = LocalClient()
+    DOCUMENT_PATH = LOCAL_DOCUMENT_PATH
+
+def process_company_filings(client_type: str, cik: str, store_raw: bool = False, store_text: bool = False):
+    """
+    Process a filing index from an S3 path or buffer.
+    :param file_path: S3 or local path to process; if filing_index_buffer is none, retrieved from here
+    :param filing_index_buffer: buffer; if not present, s3_path must be set
+    :param form_type_list: optional list of form type to process
+    :param store_raw:
+    :param store_text:
+    :return:
+    """
+
+    # Log entry
+    logger.info("Processing company cik {0}...".format(cik))
+
+    # get path to filings folder for cik
+    cik_path = openedgar.clients.edgar.get_cik_path(cik)
+    links = links_10k(cik)
+#    openedgar.clients.edgar.list_path("/Archives/{}".format(cik_path))
+
+    if client_type == "S3":
+        client = S3Client()
+    else:
+        client = LocalClient()
+
+    # Iterate through links
+    bad_record_count = 0
+    for row in links:
+
+        # Cleanup path
+        if row.lower().startswith("data/"):
+            filing_path = "edgar/{0}".format(row)
+        elif row.lower().startswith("edgar/"):
+            filing_path = row
+
+        # Check if filing record exists
+        try:
+            filing = Filing.objects.get(s3_path=filing_path)
+            logger.info("Filing record already exists: {0}".format(filing))
+        except Filing.MultipleObjectsReturned as e:
+            # Create new filing record
+            logger.error("Multiple Filing records found for s3_path={0}, skipping...".format(filing_path))
+            logger.info("Raw exception: {0}".format(e))
+            continue
+        except Filing.DoesNotExist as f:
+            # Create new filing record
+            logger.info("No Filing record found for {0}, creating...".format(filing_path))
+            logger.info("Raw exception: {0}".format(f))
+
+
+            # Check if exists; download and upload to S3 if missing
+            if not client.path_exists(filing_path):
+                # Download
+                try:
+                    filing_buffer, _ = openedgar.clients.edgar.get_buffer("/Archives/{0}".format(filing_path))
+                except RuntimeError as g:
+                    logger.error("Unable to access resource {0} from EDGAR: {1}".format(filing_path, g))
+                    bad_record_count += 1
+                    create_filing_error(row, filing_path)
+                    continue
+
+                # Upload
+                client.put_buffer(filing_path, filing_buffer)
+
+                logger.info("Downloaded from EDGAR and uploaded to {}...".format(client_type))
+            else:
+            # Download
+                logger.info("File already stored on {}, retrieving and processing...".format(client_type))
+                filing_buffer = client.get_buffer(filing_path)
+
+            # Parse
+            filing_result = process_filing(client, filing_path, filing_buffer, store_raw=store_raw, store_text=store_text)
+            if filing_result is None:
+                logger.error("Unable to process filing.")
+                bad_record_count += 1
+                create_filing_error(row, filing_path)
+
+def bulk_create_bookmarks(filename, label):
+    data_file = pandas.read_csv(filename)
+    data_file = data_file.to_dict("records")
+    for item in data_file:
+        label = label
+        start_index = item["table_index"]
+        end_index = None
+        filing = Filing.objects.get(id=item["id"])
+        existing = filing.tablebookmark_set.filter(label=label)
+        if existing:
+            tb = existing.first()
+            tb.start_index = start_index
+            tb.end_index = None
+            tb.save()
+        else:
+            filing.tablebookmark_set.create(label = label, start_index=start_index, end_index=end_index)
+
+def bulk_create_bookmarks2(filename):
+    data_file = pandas.read_csv(filename).fillna("")
+    data_file = data_file.to_dict("records")
+    for item in data_file:
+        filing = Filing.objects.get(id=item["id"])
+        for key, value in item.items():
+            if not key == "id":
+                if value:
+                    if "-" in str(value):
+                        split_value = str(value).split("-")
+                        start_index = int(split_value[0])
+                        end_index = int(split_value[1])
+                    else:
+                        start_index = int(value)
+                        end_index = None
+                    existing = filing.tablebookmark_set.filter(label=key)
+                    if existing:
+                        tb=existing.first()
+                        tb.start_index = start_index
+                        tb.end_index = end_index
+                        tb.save()
+    #                    print("existing: ", key, start_index, end_index)
+                    else:
+    #                    print(key, start_index, end_index)
+                        filing.tablebookmark_set.create(label = key, start_index=start_index, end_index=end_index)
+
+
+def create_bookmarks(filing, file):
+    data_file = pandas.read_csv(file)
+    data_file = data_file.where(pandas.notnull(data_file), None)
+    data_file = data_file.to_dict("records")
+    
+#    import sys, os
+#    sys.path.append(os.path.abspath("/storage"))
+#    import data as d
+#    data_file = d.data
+    filing = filing
+    for item in data_file:
+        label = item["label"]
+        start_index = item["start_index"]
+        end_index = None
+        existing = filing.tablebookmark_set.filter(label=label)
+        if existing:
+            existing.first()
+            tb = existing.first()
+            tb.start_index = start_index
+            tb.end_index = end_index
+            tb.save()
+        else:
+            filing.tablebookmark_set.create(label = label, start_index=start_index, end_index=end_index)
+
+def write_all_comp_diluted_eps():
+    comps = Company.objects.filter(cik__in=downloaded_companies())
+    fname = "/storage/openedgar_eps.csv"
+    done_comps = pandas.read_csv(fname)["cik"]
+    comps = comps.exclude(cik__in=done_comps)
+    for n in comps:
+        print("###############################")
+        try:
+            data = n.full_company_data()
+        except:
+            continue
+        company = None
+        if data is not None and not data.empty:
+            company = openedgar.parsers.a.CompanyCSV(data)
+        if company:
+            cols = pandas.Index(range(1990, 2021))
+            cols = cols.insert(0, "sic")
+            cols = cols.insert(0, "cik")
+            master_df = pandas.DataFrame([], columns = cols)
+            new_df = (company.print_stats())
+            if new_df is not None and not new_df.empty:
+                c_name = new_df['company_name'].iat[0]
+                sic = new_df['sic'].iat[0]
+                cik = new_df['cik'].iat[0]
+                just_values_dates = new_df.sort_values("date")[['date', 'value']]
+                horizontal = just_values_dates.T
+                horizontal.columns = horizontal.loc["date", :]
+                new_df = horizontal.drop("date").rename({"value": c_name})
+                new_df.insert(0, "sic", sic)
+                new_df.insert(0, "cik", cik)
+                master_df = pandas.concat([master_df, new_df])
+                if os.path.isfile(fname):
+                    print("path exists")
+                    master_df.to_csv(fname, mode="a", header=False)
+                else:
+                    print("path does not exist")
+                    master_df.to_csv(fname, mode="w", header=True)
+
+
+def links_10k(cik):
+    url = "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={0}&type=10-K&dateb=&owner=include&count=100".format(cik)
+    print("links url: {0}".format(url))
+    parsed = parse(urllib.request.urlopen(url))
+    doc = parsed.getroot()
+    print("parsed doc root tag: {0}".format(doc.tag))
+    links = doc.xpath("//a[@id='documentsbutton']")
+    link_strings = []
+    for e in links:
+        link_strings.append(e.get("href"))
+    accession = []
+    for l in link_strings:
+        new_string = l
+        new_string = re.sub(r'-index.htm[l]*', '.txt', new_string)
+        new_string = re.sub(r'/Archives/', "", new_string)
+        accession.append(new_string)
+    return accession
+
+def download_10ks(cik):
+    print("downloading 10-k accession numbers")
+    accession_nums = links_10k(cik)
+    for n in accession_nums:
+        print("Creating: {}".format(n))
+        create_filing(cik, "10-K", n)
+
+def downloaded_companies():
+    companies = [yo.company.cik for yo in Filing.objects.filter(form_type="10-K").filter(is_processed=True).select_related("company")]
+    companies = list(set(companies))
+    return companies
+
+def download_all():
+    ciks = pandas.read_csv("/storage/fidelity_all_stocks_cik_and_ticker.csv")
+    unique_jack = downloaded_companies()
+    cik_filter = ciks['cik'].isin(unique_jack)
+    new_ciks = ciks[~cik_filter]
+    for c in new_ciks['cik']:
+        try:
+            x = Company.objects.get(cik=c).filing_set.filter(form_type="10-K").order_by("-date_filed").first().is_processed
+            if not x:
+                print("staring download for cik: {}".format(c))
+                download_10ks(c)
+        except:
+            print("staring download for cik: {}".format(c))
+            download_10ks(c)
+
+def batch_qs(qs, batch_size=1000):
+    """
+    Returns a (start, end, total, queryset) tuple for each batch in the given
+    queryset.
+    
+    Usage:
+        # Make sure to order your querset
+        article_qs = Article.objects.order_by('id')
+        for start, end, total, qs in batch_qs(article_qs):
+            print "Now processing %s - %s of %s" % (start + 1, end, total)
+            for article in qs:
+                print article.body
+    """
+    total = qs.count()
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
+        yield (start, end, total, qs[start:end])
+
+def create_filing(cik, form_type, filing_path):
+
+    row = {
+        "CIK": cik,
+        "Form Type": form_type,
+        "File Name": filing_path,
+        "Company Name": "ERROR",
+        "Date Filed": "19000101"
+    }
+    # Check if exists; download and upload to S3 if missing
+    if not client.path_exists(filing_path):
+        # Download
+        try:
+            filing_buffer, _ = openedgar.clients.edgar.get_buffer("/Archives/{0}".format(filing_path))
+        except RuntimeError as g:
+            logger.error("Unable to access resource {0} from EDGAR: {1}".format(filing_path, g))
+#            bad_record_count += 1
+            create_filing_error(row, filing_path)
+        # Upload
+        client.put_buffer(filing_path, filing_buffer)
+        logger.info("Downloaded from EDGAR and uploaded to {}...".format(CLIENT_TYPE))
+    else:
+        # Download
+        logger.info("File already stored on {}, retrieving and processing...".format(CLIENT_TYPE))
+        filing_buffer = client.get_buffer(filing_path)
+
+    filing_result = process_filing(client, filing_path, filing_buffer, store_raw=False, store_text=False)
+    if filing_result is None:
+        logger.error("Unable to process filing.")
+#        bad_record_count += 1
+        create_filing_error(row, filing_path)
+
+def uploading_text_in_filing_documents(store_raw: False, store_text: True):
+
+    client=LocalClient()
+
+    processed_filings = Filing.objects.filter(is_processed=True)
+
+    for filing in processed_filings:
+        buffer_data = client.get_buffer(filing.s3_path)       
+        logger.info("parsing id# {0} s3_path: {1}".format(filing.id, filing.s3_path))
+        filing_data = openedgar.parsers.edgar.parse_filing(buffer_data, extract=True)
+        filing_documents = filing.filingdocument_set.all()
+        logger.info("number of FilingDocument objects calculated: {0}".format(len(filing_documents)) )
+        documents_data = filing_data["documents"]
+        logger.info("number of documents coming from data stream: {0}".format(len(documents_data)) )
+
+        # Iterate through documents
+        for document in filing_documents:
+            logger.info("WE'RE IN!!!!!!!!!!!!!!!!!!!!!")
+            filing_data = None
+
+            for d in documents_data:
+                logger.info("documents_data sequence: {0} type: {1}".format(d["sequence"], type(d["sequence"])))
+                logger.info("FilingDocument sequence: {0} type: {1}".format(document.sequence,type(document.sequence)))
+                if int(d["sequence"]) == document.sequence:
+                    logger.info("YAY")
+                    filing_data = d
+            if filing_data is not None:
+           # Upload text to S3 if requested
+                if store_text and filing_data["content_text"] is not None:
+                    raw_path = pathlib.Path(DOCUMENT_PATH, "text", filing_data["sha1"]).as_posix()
+                    if not client.path_exists(raw_path):
+                        client.put_buffer(raw_path, filing_data["content_text"], write_bytes=False)
+                        logger.info("Uploaded text contents for filing={0}, sequence={1}, sha1={2}"
+                                    .format(filing, filing_data["sequence"], filing_data["sha1"]))
+                    else:
+                        logger.info("Text contents for filing={0}, sequence={1}, sha1={2} already exists on S3"
+                                    .format(filing, filing_data["sequence"], filing_data["sha1"]))
+            else:
+                document.is_processed = False
+                document.is_error = True
+                document.save()
+
+def create_filing_documents(client, documents, filing, store_raw: bool = False, store_text: bool = False):
     """
     Create filing document records given a list of documents
     and a filing record.
@@ -91,7 +425,7 @@ def create_filing_documents(client, documents, filing, store_raw: bool = True, s
 
         # Upload raw if requested
         if store_raw and len(document["content"]) > 0:
-            raw_path = pathlib.Path(S3_DOCUMENT_PATH, "raw", document["sha1"]).as_posix()
+            raw_path = pathlib.Path(DOCUMENT_PATH, "raw", document["sha1"]).as_posix()
             if not client.path_exists(raw_path):
                 client.put_buffer(raw_path, document["content"])
                 logger.info("Uploaded raw file for filing={0}, sequence={1}, sha1={2}"
@@ -102,7 +436,7 @@ def create_filing_documents(client, documents, filing, store_raw: bool = True, s
 
         # Upload text to S3 if requested
         if store_text and document["content_text"] is not None:
-            raw_path = pathlib.Path(S3_DOCUMENT_PATH, "text", document["sha1"]).as_posix()
+            raw_path = pathlib.Path(DOCUMENT_PATH, "text", document["sha1"]).as_posix()
             if not client.path_exists(raw_path):
                 client.put_buffer(raw_path, document["content_text"], write_bytes=False)
                 logger.info("Uploaded text contents for filing={0}, sequence={1}, sha1={2}"
@@ -114,7 +448,6 @@ def create_filing_documents(client, documents, filing, store_raw: bool = True, s
     # Create in bulk
     FilingDocument.objects.bulk_create(document_records)
     return len(document_records)
-
 
 def create_filing_error(row, filing_path: str):
     """
@@ -150,6 +483,7 @@ def create_filing_error(row, filing_path: str):
         try:
             _ = CompanyInfo.objects.get(company=company, date=date_filed)
         except CompanyInfo.DoesNotExist:
+#        except:
             # Create company info record
             company_info = CompanyInfo()
             company_info.company = company
@@ -184,6 +518,73 @@ def create_filing_error(row, filing_path: str):
     filing.save()
     return True
 
+def create_light_filing(row, filing_path: str):
+    """
+    Create a Filing record from an index row without downloading text file.
+    :param row:
+    :param filing_path:
+    :return:
+    """
+    # Get vars
+    cik = row["CIK"]
+    company_name = row["Company Name"]
+    form_type = row["Form Type"]
+
+    try:
+        date_filed = dateutil.parser.parse(str(row["Date Filed"])).date()
+    except ValueError:
+        date_filed = None
+    except IndexError:
+        date_filed = None
+
+    # Create empty error filing record
+    filing = Filing()
+    filing.form_type = form_type
+    filing.date_filed = date_filed
+    filing.s3_path = filing_path
+    filing.is_error = False
+    filing.is_processed = False
+
+    # Get company info
+    try:
+        company = Company.objects.get(cik=cik)
+
+        try:
+            _ = CompanyInfo.objects.get(company=company, date=date_filed)
+        except CompanyInfo.DoesNotExist:
+            # Create company info record
+            company_info = CompanyInfo()
+            company_info.company = company
+            company_info.name = company_name
+            company_info.sic = None
+            company_info.state_incorporation = None
+            company_info.state_location = None
+            company_info.date = date_filed
+            company_info.save()
+    except Company.DoesNotExist:
+        # Create company
+        company = Company()
+        company.cik = cik
+
+        try:
+            company.save()
+        except django.db.utils.IntegrityError:
+            return create_light_filing(row, filing_path)
+
+        # Create company info record
+        company_info = CompanyInfo()
+        company_info.company = company
+        company_info.name = company_name
+        company_info.sic = None
+        company_info.state_incorporation = None
+        company_info.state_location = None
+        company_info.date = date_filed
+        company_info.save()
+
+    # Finally update company and save
+    filing.company = company
+    filing.save()
+    return True
 
 @shared_task
 def process_filing_index(client_type: str, file_path: str, filing_index_buffer: Union[str, bytes] = None,
@@ -247,36 +648,9 @@ def process_filing_index(client_type: str, file_path: str, filing_index_buffer: 
             # Create new filing record
             logger.info("No Filing record found for {0}, creating...".format(filing_path))
             logger.info("Raw exception: {0}".format(f))
-
-            # Check if exists; download and upload to S3 if missing
-            if not client.path_exists(filing_path):
-                # Download
-                try:
-                    filing_buffer, _ = openedgar.clients.edgar.get_buffer("/Archives/{0}".format(filing_path))
-                except RuntimeError as g:
-                    logger.error("Unable to access resource {0} from EDGAR: {1}".format(filing_path, g))
-                    bad_record_count += 1
-                    create_filing_error(row, filing_path)
-                    continue
-
-                # Upload
-                client.put_buffer(filing_path, filing_buffer)
-
-                logger.info("Downloaded from EDGAR and uploaded to {}...".format(client_type))
-            else:
-                # Download
-                logger.info("File already stored on {}, retrieving and processing...".format(client_type))
-                filing_buffer = client.get_buffer(filing_path)
-
-            # Parse
-            filing_result = process_filing(client, filing_path, filing_buffer, store_raw=store_raw, store_text=store_text)
-            if filing_result is None:
-                logger.error("Unable to process filing.")
-                bad_record_count += 1
-                create_filing_error(row, filing_path)
-
+            create_light_filing(row, filing_path)
     # Create a filing index record
-    edgar_url = "/Archives/{0}".format(file_path).replace("//", "/")
+    edgar_url = "//{0}".format(file_path).replace("//", "/")
     try:
         filing_index = FilingIndex.objects.get(edgar_url=edgar_url)
         filing_index.total_record_count = filing_index_data.shape[0]
@@ -456,7 +830,7 @@ def search_filing_document_sha1(client, sha1: str, term_list: Iterable[str], sea
     """
     # Get buffer
     logger.info("Retrieving buffer from S3...")
-    text_s3_path = pathlib.Path(S3_DOCUMENT_PATH, "text", sha1).as_posix()
+    text_s3_path = pathlib.Path(DOCUMENT_PATH, "text", sha1).as_posix()
     document_buffer = client.get_buffer(text_s3_path).decode("utf-8")
 
     # Check if case
@@ -525,7 +899,7 @@ def extract_filing_document_data_sha1(client, sha1: str):
     """
     # Get buffer
     logger.info("Retrieving buffer from S3...")
-    text_s3_path = pathlib.Path(S3_DOCUMENT_PATH, "text", sha1).as_posix()
+    text_s3_path = pathlib.Path(DOCUMENT_PATH, "text", sha1).as_posix()
     document_buffer = client.get_buffer(text_s3_path).decode("utf-8")
 
     # TODO: Build your own database here.

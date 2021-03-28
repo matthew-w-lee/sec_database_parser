@@ -31,10 +31,12 @@ import time
 import dateutil.parser
 import lxml.html
 import requests
-
+from openedgar.parsers.html_table_parser import HTMLTableParser
+import pandas
+import re
 # Project
 from typing import Union
-
+import itertools
 from config.settings.base import HTTP_SEC_HOST, HTTP_FAIL_SLEEP, HTTP_SEC_INDEX_PATH, HTTP_SLEEP_DEFAULT
 
 # Setup logger
@@ -104,6 +106,45 @@ def get_buffer(remote_path: str, base_path: str = HTTP_SEC_HOST):
         logger.info("Successfully retrieved file {0}; {1} bytes".format(remote_path, len(file_buffer)))
 
     return file_buffer, last_modified_date
+
+def xbrl_instance_path(cik, accession_number):
+    links = list_folder_files(cik, accession_number)
+    for l in links:
+        if re.search("instance", l["Description"], re.IGNORECASE):
+            return l["Path"]
+
+
+def list_folder_files(cik, accession_number):
+    accession_number_edit = accession_number.replace("-", "")
+    html_index_url = "/Archives/edgar/data/{0}/{1}/{2}-index.htm".format(cik, accession_number_edit, accession_number)
+
+    # Log entrance
+    logger.info("Retrieving directory listing from {0}".format(html_index_url))
+    remote_buffer, _ = get_buffer(html_index_url)
+
+    # Parse the index listing
+    if remote_buffer is None:
+        logger.warning("list_path for {0} was passed None buffer".format(html_index_url))
+        return []
+
+    # Parse buffer to HTML
+    html_doc = lxml.html.fromstring(remote_buffer)
+
+    tables = html_doc.xpath("//table")
+    tables = [HTMLTableParser(t).parsed_table_unclean() for t in tables]
+    tables = list(itertools.chain.from_iterable(tables))
+    new_list = []
+    for row in tables[1:]:
+        new_row = {
+            "Seq": row[0],
+            "Description": row[1],
+            "Document": row[2],
+            "Type": row[3],
+            "Size": row[4],
+            "Path": "https://www.sec.gov/Archives/edgar/data/{0}/{1}/{2}".format(cik, accession_number_edit, row[2])
+        }
+        new_list.append(new_row)
+    return new_list
 
 
 def list_path(remote_path: str):

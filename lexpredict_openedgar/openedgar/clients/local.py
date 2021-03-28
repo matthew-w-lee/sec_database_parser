@@ -33,6 +33,7 @@ formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
 console.setFormatter(formatter)
 logger.addHandler(console)
 
+PATH_PREFIX = os.environ['DOWNLOAD_PATH']
 
 class LocalClient:
 
@@ -40,19 +41,25 @@ class LocalClient:
         logger.info("Initialized local client")
 
     def path_exists(self, path: str):
-        return os.path.exists(path)
+        file_path = os.path.join(PATH_PREFIX, path)
+#        file_path = PATH_PREFIX + path
+        return os.path.exists(file_path)
 
     def put_buffer(self, file_path: str, buffer, write_bytes=True):
-        dir_name = os.path.dirname(file_path)
+#        path = PATH_PREFIX + file_path
+        path = os.path.join(PATH_PREFIX, file_path)
+        print("LOCAL CLIENT - path: {0}".format(path))
+        dir_name = os.path.dirname(path)
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         if write_bytes:
             mode="wb"
         else:
             mode="w"
-        with open(file_path, mode=mode) as localfile:
+        with open(path, mode=mode) as localfile:
             localfile.write(buffer)
 
     def get_buffer(self, file_path: str):
-        with open(file_path, mode='rb') as localfile:
+        path = os.path.join(PATH_PREFIX, file_path)
+        with open(path, mode='rb') as localfile:
             return localfile.read()

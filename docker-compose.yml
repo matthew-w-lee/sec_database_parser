@@ -1,0 +1,37 @@
+version: '3'
+services:
+  db:
+      image: postgres
+#      volumes:
+#        - ./lexpredict_openedgar/openedgar/db:/var/lib/postgresql/data
+      environment:
+        - POSTGRES_DB=openedgar
+        - POSTGRES_USER=postgres
+        - POSTGRES_PASSWORD=postgres
+
+  tika:
+      image: apache/tika:1.18
+      ports:
+      - "9998:9998"
+
+  openedgar:
+    image: kidicarus44/openedgar
+    command: ""
+    volumes:
+      - './lexpredict_openedgar/openedgar:/opt/openedgar/lexpredict_openedgar/openedgar'
+#      - ./lexpredict_openedgar/openedgar/storage:/storage
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - tika
+
+  jupyter_notebook:
+    image: jupyter/scipy-notebook:17aba6048f44
+    command: ""
+    volumes:
+      - ./lexpredict_openedgar/openedgar/interface_notebooks/:/home/jovyan/interface_notebooks/
+    ports:
+      - "8888:8888"
+    depends_on:
+      - openedgar
