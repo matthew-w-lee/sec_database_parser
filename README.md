@@ -1,9 +1,9 @@
 # SEC Filing Database and Parser
 [view demo](https://www.google.com)
 ## About
-This project provides a database and parsers for pulling financial data from filings submitted with the U.S. Securities and Exchange Commission ("SEC") programmatically.
+This project provides a database and parsers for programatically pulling financial data from filings submitted with the U.S. Securities and Exchange Commission ("SEC").
 
-This project is built on top of OpenEDGAR by LexPredict, a Django framework for building databases from EDGAR that can automate the retrieval and parsing of EDGAR forms. A Jupyter Notebook as a user interface, communicating with the Django app via a minimal REST HTTP API. 
+This project is built on top of OpenEDGAR by LexPredict, a Django framework for building databases from EDGAR that can automate the retrieval and parsing of EDGAR forms. A Jupyter Notebook is used as a user interface, communicating with the Django app via a minimal REST HTTP API. 
 
 ## Built With
 * [OpenEDGAR by LexPredict](https://github.com/LexPredict/openedgar)
@@ -21,7 +21,7 @@ This project is built on top of OpenEDGAR by LexPredict, a Django framework for 
 * Enter repository directory
 
 ```bash
-    cd sec_filing_app
+    cd sec_database_parser
 ```
 * Enter docker-compose up command. It may take a few minutes to download the images.
 When the containers boot up, take note of the token provided in logging info from the Jupyter Notebook container.
@@ -30,7 +30,7 @@ You'll need it to access the interface.
 ```bash
     docker-compose up
 ```
-* Run the migrate script (location below) using the docker exec command to do an inital migration of the database.
+* Run the migrate script using the docker exec command below to do an inital migration of the database.
 The container for Django app should be named sec_database_parser_openedgar_1 as set forth below.
 
 ```bash
@@ -56,19 +56,19 @@ for 10 companies.
 
 ## Usage
 #### Background
-The primary aim of this project is to parse filings submitted with the SEC into a format more useful for analysis by computer. Companies over the years have filed their disclosures in one of several electronic formats -- plain text files (prior to early 2000s), HTML (early 2000s - present), and XBRL (eXtensible Business Reporting Language) (since the early 2010s).
+The primary aim of this project is to parse filings submitted with the SEC into a format more useful for analysis by computer. Companies over the years have filed their disclosures in one of several electronic formats -- plain text files (prior to the early 2000s), HTML (early 2000s - present), and XBRL (eXtensible Business Reporting Language) (since the early 2010s).
 
 Although the filings submitted in XBRL offer a clear path towards obtaining such data, the filings made in plain text or HTML are more idiosyncratic and resistant to simple parsing. The organization and format of the information embedded in these filings can vary widely between different companies and different time periods.
 
 #### Django Database
-OpenEDGAR is used to download the file representing a submission and to store metadata regarding that submission in a PostgresSQL database. 
+The OpenEDGAR framework is used to download files representing submissions in an organized manner and to store metadata regarding submissions in a PostgresSQL database. 
 
-From there, upon request, this project processes the content of a filing into a data structure that is used as a standard across all filings. The data structure is a List of Dicts, with each Dict representing a "row" of text in the filing along with some other metadata regarding that row that is determined through the processing. This process helps to standardize a filing contents with others and to facilitate a search that mimics the "reading" of the filings content on a row-by-row (or paragraph-by-paragraph) basis.
+From there, upon request, this project processes the content of a filing into a data structure that is used as a standard across all filings. The data structure is a List of Dicts, with each Dict representing a "row" of text in the filing along with some other metadata regarding that row that is determined during processing. This conversion helps to standardize a filing's contents with others and to facilitate a search that mimics the "reading" of the filings content on a row-by-row (or paragraph-by-paragraph) basis.
 
 The Django app provides 3 endpoints with the following purposes:
 1. getting a list of companies contained in the database; 
 2. getting a list of filings for a certain company in the database by CIK (unique id number of a company used by the SEC), and 
-3. searching the tables of financial data in a filing; search can be performed for a specific financial statement type or by matching provided search terms
+3. searching the tables of financial data in a filing; searches can be performed for a specific financial statement type or by matching provided search terms
 
 #### Jupyter Notebook Interface
 
@@ -81,6 +81,6 @@ Please see notebook for further instructions on use.
 <!-- CONTACT -->
 ## Contact
 
-Matthew W. Lee - - matthew.w.lee44@gmail.com
+Matthew W. Lee - matthew.w.lee44@gmail.com
 
 Project Link: [https://github.com/matthew-w-lee/sec_database_parser](https://github.com/matthew-w-lee/sec_database_parser)
