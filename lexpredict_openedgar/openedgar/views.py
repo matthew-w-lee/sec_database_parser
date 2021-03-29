@@ -83,15 +83,12 @@ def single_filing(request, cik, pk, format=None):
             statement_type = search_words["statement_type"]
             data = filing.financial_statements(statement_type)
             return Response(data)
-#        elif search_words["request_type"] == "lines":
-#            data = filing.document_content().all_lines()
-#            return Response(data)
         else:
             terms = search_words["search_terms"]
             data = filing.search_document(terms)
             return Response(data)
     else:
-        # RETURN HTML OR TEXT OF FILING
+        # Return HTML or text of filing
         data = filing.raw_content()
         return Response(data)
 
@@ -102,7 +99,5 @@ def search_tables(request, cik, pk, format=None):
         filing = Filing.objects.get(pk=pk)
     except Filing.DoesNotExist:
         return Response(status=status.HTTP_404_NOT_FOUND)
-#        data = {"accession_number": filing.accession_number, "html": filing.main_content_string()}
     data = filing.tables()
-#        data = json.dumps(data)
     return Response(data)

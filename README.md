@@ -1,5 +1,5 @@
 # SEC Filing Database and Parser
-[view demo](https://www.google.com)
+[view demo (password: matt)](https://www.google.com)
 ## About
 This project provides a database and parsers for programatically pulling financial data from filings submitted with the U.S. Securities and Exchange Commission ("SEC").
 
@@ -57,6 +57,10 @@ for 10 companies.
 * Click on the notebook_interface.ipynb file to open the interface.
 
 ## Usage
+
+#### Access
+If locally installed, please follow instructions above. If using demo, enter the password: "matt". Then click on the interface_notebooks folder and click on the notebook_interface.ipynb file.
+
 #### Background
 The primary aim of this project is to parse filings submitted with the SEC into a format more useful for analysis by computer. Companies over the years have filed their disclosures in one of several electronic formats -- plain text files (prior to the early 2000s), HTML (early 2000s - present), and XBRL (eXtensible Business Reporting Language) (since the early 2010s).
 

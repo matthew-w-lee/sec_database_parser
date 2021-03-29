@@ -219,28 +219,28 @@ class Filing(django.db.models.Model):
 
 class DocumentContent():
 
-#This class represents the information content of a filing and provides a standardized format
-#for searching and obtaining information from a filing.
+# This class represents the information content of a filing and provides a standardized format
+# for searching and obtaining information from a filing.
 
-#Filings are initially parsed into a List of Dicts, with each element in the list representing
-#a row of text in the filing. 
+# Filings are initially parsed into a List of Dicts, with each element in the list representing
+# a row of text in the filing. 
 
     def __init__(self, content_string, is_text_file):
         self.content_string = content_string
-        #the following converts the string content of a filing into dict for each row of text from a filing
-        #for HTML files, each line reprsents an HTML tag that is a block tag; all inline tags children of a block tag are concatenated
-        # and included as a part of the block tag line; HTML tables are parsed into a list of dicts
+        # The following converts the string content of a filing into dict for each row of text from a filing
+        # For HTML files, each line reprsents an HTML tag that is a block tag; all inline tags children of a block tag 
+        # are concatenated and included as a part of the block tag line; HTML tables are parsed into a list of dicts
         self.lines = SECFilingContentParser(content_string, is_text_file).parse()
 
     def all_lines(self):
         return {"type": "lines", "results": self.lines}
 
     def tables(self):
-        #gather all lines part of a table
+        # Gather all lines part of a table
         return [t for t in self.lines if t['tag'] == "table"]
 
     def nonTableRows(self):
-        #gather all non-table lines
+        # Gather all non-table lines
         new_rows = []
         for row in lines:
             if row["tag"] != "table" and row["tag"] != "tr" and row["tag"] != "td" and row["tag"] != "th":
@@ -252,10 +252,10 @@ class DocumentContent():
             response_type = response_type)
         if search_response:
             results = search_response['results']
-            #gather all of the page numbers from the matched lines
+            # Gather all of the page numbers from the matched lines
             page_nums = list(set([c['page_number'] for c in results]))
             new_results = []
-            #find biggest table on each page
+            # Find biggest table on each page
             for p in page_nums:
                 page_lines = [line for line in self.lines if line['page_number'] == p]
                 tables = [l for l in page_lines if l['tag'] == "table"]
@@ -272,21 +272,21 @@ class DocumentContent():
 
 
     def search(self, search_terms, how="any", row_type=None, item_sections=[], page_lines=[], response_type="lines"):
-        # only searching lines that are not part of a table
+        # Only searching lines that are not part of a table
         if row_type == "rows":
             searched_lines = self.nonTableRows()
-        # only searching lines that are part of a table
+        # Only searching lines that are part of a table
         elif row_type == "tables":
             searched_lines = self.tables()
-        # search all lines
+        # Search all lines
         else:
             searched_lines = self.lines
 
-        #search only certain item sections
+        # Search only certain item sections
         if item_sections:
             searched_lines = [line for line in searched_lines if line['item_number'] in item_sections]
 
-        #search only certain page lines
+        # Search only certain page lines
         if page_lines:
             new_searched_lines = []
             lines_w_content = [line for line in searched_lines if line['content']]
@@ -294,16 +294,16 @@ class DocumentContent():
                 new_searched_lines = new_searched_lines + [l for index, l in enumerate(page) if index in page_lines]
             searched_lines = new_searched_lines
 
-        #run search
+        # Run search
         found = []
         for line in searched_lines:
             if self.execute_search(line, search_terms, how):
                 found.append(line)
 
-        #put together response
+        # Put together response
         if found:
             final_search_results = {"type": None, "results": []}
-            # delivers all of the lines on the page where there is a match
+            # Delivers all of the lines on the page where there is a match
             if response_type == "page":
                 final_search_results["type"] = "page"
                 r = []
@@ -312,14 +312,14 @@ class DocumentContent():
                     page_lines = [line for line in self.lines if line['page_number'] == p]
                     r.append(page_lines)
                 final_search_results['results'] = r
-            # only delivers the lines that have matched
+            # Only delivers the lines that have matched
             else:
                 final_search_results["type"] = "lines"
                 final_search_results['results'] = found
             return final_search_results
 
     def execute_search(self, line, terms, how):
-        # search that matches any of the search terms
+        # Search that matches any of the search terms
         if how == "any":
             if line['tag'] == "table":
                 for content_line in line['content']:
@@ -328,7 +328,7 @@ class DocumentContent():
             else:
                 if any([re.search(term, str(line['content']), re.IGNORECASE) for term in terms]):
                     return True
-        # search that must match all search terms
+        # Search that must match all search terms
         else:
             if line['tag'] == "table":
                 table_line = " ".join(line['content'])

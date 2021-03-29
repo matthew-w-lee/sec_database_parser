@@ -86,10 +86,9 @@ def process_company_filings(client_type: str, cik: str, store_raw: bool = False,
     # Log entry
     logger.info("Processing company cik {0}...".format(cik))
 
-    # get path to filings folder for cik
+    # Get path to filings folder for cik
     cik_path = openedgar.clients.edgar.get_cik_path(cik)
     links = links_10k(cik)
-#    openedgar.clients.edgar.list_path("/Archives/{}".format(cik_path))
 
     if client_type == "S3":
         client = S3Client()
@@ -196,11 +195,7 @@ def create_bookmarks(filing, file):
     data_file = pandas.read_csv(file)
     data_file = data_file.where(pandas.notnull(data_file), None)
     data_file = data_file.to_dict("records")
-    
-#    import sys, os
-#    sys.path.append(os.path.abspath("/storage"))
-#    import data as d
-#    data_file = d.data
+
     filing = filing
     for item in data_file:
         label = item["label"]
@@ -300,24 +295,6 @@ def download_all():
             print("staring download for cik: {}".format(c))
             download_10ks(c)
 
-def batch_qs(qs, batch_size=1000):
-    """
-    Returns a (start, end, total, queryset) tuple for each batch in the given
-    queryset.
-    
-    Usage:
-        # Make sure to order your querset
-        article_qs = Article.objects.order_by('id')
-        for start, end, total, qs in batch_qs(article_qs):
-            print "Now processing %s - %s of %s" % (start + 1, end, total)
-            for article in qs:
-                print article.body
-    """
-    total = qs.count()
-    for start in range(0, total, batch_size):
-        end = min(start + batch_size, total)
-        yield (start, end, total, qs[start:end])
-
 def create_filing(cik, form_type, filing_path):
 
     row = {
@@ -334,7 +311,6 @@ def create_filing(cik, form_type, filing_path):
             filing_buffer, _ = openedgar.clients.edgar.get_buffer("/Archives/{0}".format(filing_path))
         except RuntimeError as g:
             logger.error("Unable to access resource {0} from EDGAR: {1}".format(filing_path, g))
-#            bad_record_count += 1
             create_filing_error(row, filing_path)
         # Upload
         client.put_buffer(filing_path, filing_buffer)
@@ -347,13 +323,11 @@ def create_filing(cik, form_type, filing_path):
     filing_result = process_filing(client, filing_path, filing_buffer, store_raw=False, store_text=False)
     if filing_result is None:
         logger.error("Unable to process filing.")
-#        bad_record_count += 1
         create_filing_error(row, filing_path)
 
 def uploading_text_in_filing_documents(store_raw: False, store_text: True):
 
     client=LocalClient()
-
     processed_filings = Filing.objects.filter(is_processed=True)
 
     for filing in processed_filings:
@@ -402,9 +376,6 @@ def create_filing_documents(client, documents, filing, store_raw: bool = False, 
     :param store_text: whether to store text contents
     :return:
     """
-    # Get client if we're using S3
-
-
     # Iterate through documents
     document_records = []
     for document in documents:
