@@ -3,7 +3,9 @@
 ## About
 This project provides a database and parsers for programatically pulling financial data from filings submitted with the U.S. Securities and Exchange Commission ("SEC").
 
-This project is built on top of OpenEDGAR by LexPredict, a Django framework for building databases from EDGAR that can automate the retrieval and parsing of EDGAR forms. A Jupyter Notebook is used as a user interface, communicating with the Django app via a minimal REST HTTP API. 
+This project is built on top of OpenEDGAR by LexPredict, a Django framework for building databases from EDGAR that can automate the retrieval and parsing of EDGAR forms. A Jupyter Notebook is used as a user interface, communicating with the Django app via a minimal REST HTTP API.
+
+Although a full git commit history is not available for this project, the commit immediately before the latest commit is the OpenEDGAR code base currently available at https://github.com/LexPredict/openedgar. This should provide a diff in the commit history that shows all of the changes and additions made to the OpenEDGAR code in connection with the work on this project.
 
 ## Built With
 * [OpenEDGAR by LexPredict](https://github.com/LexPredict/openedgar)
