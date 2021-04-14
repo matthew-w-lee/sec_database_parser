@@ -128,7 +128,7 @@ def process_company_filings(client_type: str, cik: str, store_raw: bool = False,
                 except RuntimeError as g:
                     logger.error("Unable to access resource {0} from EDGAR: {1}".format(filing_path, g))
                     bad_record_count += 1
-                    create_filing_error(row, filing_path)
+                    #create_filing_error(row, filing_path)
                     continue
 
                 # Upload
@@ -145,7 +145,7 @@ def process_company_filings(client_type: str, cik: str, store_raw: bool = False,
             if filing_result is None:
                 logger.error("Unable to process filing.")
                 bad_record_count += 1
-                create_filing_error(row, filing_path)
+                #create_filing_error(row, filing_path)
 
 def bulk_create_bookmarks(filename, label):
     data_file = pandas.read_csv(filename)
